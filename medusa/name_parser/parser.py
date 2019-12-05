@@ -289,18 +289,24 @@ class NameParser(object):
         return new_episode_numbers, new_season_numbers, new_absolute_numbers
 
     def _parse_string(self, name):
+        self.was_show_type_none = self.show_type is None
         guess = guessit.guessit(name, dict(show_type=self.show_type))
-        result = self.to_parse_result(name, guess)
+        self.result = self.to_parse_result(name, guess)
 
-        search_series = helpers.get_show(result.series_name, self.try_indexers) if not self.naming_pattern else None
+        search_series = helpers.get_show(self.result.series_name,
+                                         self.try_indexers) if not self.naming_pattern else None
 
         # confirm passed in show object indexer id matches result show object indexer id
         series_obj = None if search_series and self.series and search_series.indexerid != self.series.indexerid else search_series
-        result.series = series_obj or self.series
+        self.result.series = series_obj or self.series
 
         # if this is a naming pattern test or result doesn't have a show object then return best result
-        if not result.series or self.naming_pattern:
-            return result
+        if not self.result.series or self.naming_pattern:
+            return self.result
+
+        if (self.result.series.is_anime or self.result.is_anime) and self.was_show_type_none:
+            self.show_type = 'anime'
+            self._parse_string(name)
 
         new_episode_numbers = []
         new_season_numbers = []
@@ -308,14 +314,14 @@ class NameParser(object):
 
         # if we have an air-by-date show and the result is air-by-date,
         # then get the real season/episode numbers
-        if result.series.air_by_date and result.is_air_by_date:
-            new_episode_numbers, new_season_numbers = self._parse_air_by_date(result)
+        if self.result.series.air_by_date and self.result.is_air_by_date:
+            new_episode_numbers, new_season_numbers = self._parse_air_by_date(self.result)
 
-        elif result.series.is_anime or result.is_anime:
-            new_episode_numbers, new_season_numbers, new_absolute_numbers = self._parse_anime(result)
+        elif self.result.series.is_anime or self.result.is_anime:
+            new_episode_numbers, new_season_numbers, new_absolute_numbers = self._parse_anime(self.result)
 
-        elif result.season_number and result.episode_numbers:
-            new_episode_numbers, new_season_numbers, new_absolute_numbers = self._parse_series(result)
+        elif self.result.season_number and self.result.episode_numbers:
+            new_episode_numbers, new_season_numbers, new_absolute_numbers = self._parse_series(self.result)
 
         # Remove None from the list of seasons, as we can't sort on that
         new_season_numbers = sorted({season for season in new_season_numbers if season is not None})
@@ -335,28 +341,28 @@ class NameParser(object):
         new_absolute_numbers = sorted(set(new_absolute_numbers))
 
         if new_absolute_numbers:
-            result.ab_episode_numbers = new_absolute_numbers
+            self.result.ab_episode_numbers = new_absolute_numbers
 
         if new_season_numbers and new_episode_numbers:
-            result.episode_numbers = new_episode_numbers
-            result.season_number = new_season_numbers[0]
+            self.result.episode_numbers = new_episode_numbers
+            self.result.season_number = new_season_numbers[0]
 
         # For anime that we still couldn't get a season, let's assume we should use 1.
-        if result.series.is_anime and result.season_number is None and result.episode_numbers:
-            result.season_number = 1
+        if self.result.series.is_anime and self.result.season_number is None and self.result.episode_numbers:
+            self.result.season_number = 1
             log.warning(
                 'Unable to parse season number for anime {name}, '
                 'assuming absolute numbered anime with season 1',
-                {'name': result.series.name}
+                {'name': self.result.series.name}
             )
 
-        if result.series.is_scene:
+        if self.result.series.is_scene:
             log.debug(
                 'Converted parsed result {original} into {result}',
-                {'original': result.original_name, 'result': result}
+                {'original': self.result.original_name, 'result': self.result}
             )
 
-        return result
+        return self.result
 
     @staticmethod
     def erase_cached_parse(indexer, indexer_id):
